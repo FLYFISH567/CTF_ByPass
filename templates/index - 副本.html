@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CTF命令执行绕过工具</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3B82F6',
+                        secondary: '#10B981',
+                        danger: '#EF4444',
+                        dark: '#1E293B',
+                        light: '#F8FAFC'
+                    },
+                    fontFamily: {
+                        mono: ['Consolas', 'Monaco', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .text-shadow {
+                text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .transition-height {
+                transition: max-height 0.3s ease-out;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <header class="bg-gradient-to-r from-primary to-primary/80 text-white shadow-lg">
+        <div class="container mx-auto px-4 py-6">
+            <h1 class="text-[clamp(1.5rem,3vw,2.5rem)] font-bold text-shadow">
+                <i class="fa fa-shield mr-2"></i>CTF命令执行绕过工具
+            </h1>
+            <p class="mt-2 text-blue-100">分析过滤规则，生成可用命令</p>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-4 py-8">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- 左侧：输入区域 -->
+            <div class="lg:col-span-1">
+                <div class="bg-white rounded-xl shadow-md p-6 h-full">
+                    <h2 class="text-xl font-bold text-dark mb-4 flex items-center">
+                        <i class="fa fa-filter text-primary mr-2"></i>过滤规则设置
+                    </h2>
+                    
+                    <div class="mb-6">
+                        <label for="regexInput" class="block text-gray-700 mb-2 font-medium">过滤正则表达式</label>
+                        <div class="flex">
+                            <span class="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500">/</span>
+                            <input 
+                                type="text" 
+                                id="regexInput" 
+                                class="flex-grow px-4 py-2 border border-gray-300 rounded-r-md focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+                                placeholder="例如: [a-zA-Z0-9]"
+                                value="[a-zA-Z0-9]"
+                            >
+                            <span class="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 bg-gray-50 text-gray-500">/</span>
+                        </div>
+                        <p class="text-sm text-gray-500 mt-1">输入用于过滤的正则表达式（不需要包含^和$，程序会自动添加）</p>
+                    </div>
+                    
+                    <div class="mb-6">
+                        <label class="block text-gray-700 mb-2 font-medium">匹配模式</label>
+                        <div class="flex space-x-4">
+                            <label class="inline-flex items-center">
+                                <input type="radio" name="matchMode" value="contains" checked class="form-radio text-primary">
+                                <span class="ml-2">包含禁用字符即过滤</span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <button id="analyzeBtn" class="w-full bg-primary hover:bg-primary/90 text-white font-medium py-2 px-4 rounded-lg transition duration-200 flex items-center justify-center">
+                        <i class="fa fa-search mr-2"></i>分析过滤规则
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 右侧：结果区域 -->
+            <div class="lg:col-span-2">
+                <!-- 过滤分析结果 -->
+                <div class="bg-white rounded-xl shadow-md p-6 mb-8">
+                    <h2 class="text-xl font-bold text-dark mb-4 flex items-center">
+                        <i class="fa fa-bar-chart text-primary mr-2"></i>过滤分析结果
+                    </h2>
+                    
+                    <div id="analysisResult" class="hidden">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <h3 class="font-semibold text-gray-800 mb-2">被禁用的字符</h3>
+                                <div id="bannedChars" class="bg-gray-50 p-4 rounded-lg font-mono text-danger h-40 overflow-y-auto"></div>
+                            </div>
+                            <div>
+                                <h3 class="font-semibold text-gray-800 mb-2">允许的字符</h3>
+                                <div id="allowedChars" class="bg-gray-50 p-4 rounded-lg font-mono text-secondary h-40 overflow-y-auto"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="noAnalysis" class="text-center py-10 text-gray-500">
+                        <i class="fa fa-info-circle text-4xl mb-3"></i>
+                        <p>请输入过滤正则表达式并点击"分析过滤规则"</p>
+                    </div>
+                </div>
+                
+                <!-- 常用命令绕过 -->
+                <div class="bg-white rounded-xl shadow-md p-6 mb-8">
+                    <h2 class="text-xl font-bold text-dark mb-4 flex items-center">
+                        <i class="fa fa-terminal text-primary mr-2"></i>常用命令绕过方案
+                    </h2>
+                    
+                    <div id="commonCommands" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                            <h3 class="font-medium text-gray-800 mb-2">列出目录 (ls)</h3>
+                            <div id="lsBypass" class="font-mono text-sm text-gray-700 bg-gray-50 p-3 rounded">
+                                请先分析过滤规则
+                            </div>
+                        </div>
+                        
+                        <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                            <h3 class="font-medium text-gray-800 mb-2">读取文件 (cat)</h3>
+                            <div id="catBypass" class="font-mono text-sm text-gray-700 bg-gray-50 p-3 rounded">
+                                请先分析过滤规则
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 添加警告信息显示元素 -->
+                    <div id="analysisWarning" class="mt-4 text-yellow-600 text-sm bg-yellow-50 p-3 rounded border border-yellow-200 hidden"></div>
+                </div>
+                
+                <!-- 自定义命令 -->
+                <div class="bg-white rounded-xl shadow-md p-6">
+                    <h2 class="text-xl font-bold text-dark mb-4 flex items-center">
+                        <i class="fa fa-code text-primary mr-2"></i>自定义命令生成
+                    </h2>
+                    
+                    <div class="mb-4">
+                        <label for="customCmd" class="block text-gray-700 mb-2 font-medium">原始命令</label>
+                        <input 
+                            type="text" 
+                            id="customCmd" 
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+                            placeholder="例如: cat /flag"
+                            value="cat /flag"
+                        >
+                    </div>
+                    
+                    <button id="generateCmdBtn" class="bg-secondary hover:bg-secondary/90 text-white font-medium py-2 px-6 rounded-lg transition duration-200 flex items-center">
+                        <i class="fa fa-magic mr-2"></i>生成绕过命令
+                    </button>
+                    
+                    <div id="customCmdResult" class="mt-4 hidden">
+                        <h3 class="font-semibold text-gray-800 mb-2">可能的绕过命令</h3>
+                        <div id="bypassCommands" class="font-mono text-sm bg-gray-50 p-4 rounded-lg max-h-40 overflow-y-auto"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="bg-dark text-white py-8 mt-12">
+        <div class="container mx-auto px-4">
+            <div class="text-center">
+                <p>CTF命令执行绕过工具 &copy; 2023</p>
+                <p class="text-gray-400 text-sm mt-2">仅供学习和CTF比赛使用</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // 常用命令及其可能的绕过形式
+        const commonCommands = {
+            ls: ['ls', 'l\s', 'ls -la', 'ls -l', 'ls /', 'dir', 'ls${IFS}-la'],
+            cat: ['cat', 'c\at', 'ca\t', 'cat /flag', 'tac /flag', 'more /flag', 'less /flag', 'nl /flag', 'cat${IFS}/flag'],
+            whoami: ['whoami', 'who\ami', 'id', 'whoami${IFS}'],
+            find: ['find / -name flag*', 'find${IFS}/-name${IFS}flag*', 'find\ /\ -name\ flag*']
+        };
+
+        // 分析过滤规则按钮点击事件
+        document.getElementById('analyzeBtn').addEventListener('click', analyzeFilter);
+        // 生成自定义命令按钮点击事件
+        document.getElementById('generateCmdBtn').addEventListener('click', generateCustomCommand);
+
+        // 分析过滤规则
+        function analyzeFilter() {
+            const regex = document.getElementById('regexInput').value;
+            fetch('/analyze', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({regex: regex})
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('网络响应不正常');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('allowedChars').textContent = data.allowed_chars || '';
+                    document.getElementById('bannedChars').textContent = data.forbidden_chars || '';
+                    window.analysisResult = data;
+                    
+                    // 显示分析结果区域，隐藏提示信息
+                    document.getElementById('analysisResult').classList.remove('hidden');                    
+                    document.getElementById('noAnalysis').classList.add('hidden');
+                    
+                    // 显示警告信息（如果有）
+                    const warningElement = document.getElementById('analysisWarning');
+                    if (data.warning) {
+                        warningElement.textContent = '⚠️ ' + data.warning;
+                        warningElement.classList.remove('hidden');
+                    } else {
+                        warningElement.textContent = '';
+                        warningElement.classList.add('hidden');
+                    }
+                    
+                    generateBypass();
+                } else {
+                    alert('分析失败: ' + (data.message || '未知错误'));
+                }
+            })
+            .catch(error => {
+                console.error('分析错误:', error);
+                alert('分析过程中发生错误: ' + error.message);
+            });
+        }
+
+        function generateBypass() {
+            // 使用之前存储的分析结果
+            if (!window.analysisResult) {
+                alert('请先分析过滤规则');
+                return;
+            }
+            fetch('/generate', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    allowed_chars: window.analysisResult.allowed_chars,
+                    forbidden_chars: window.analysisResult.forbidden_chars
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('生成请求失败');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('lsBypass').textContent = (data.ls_bypass || []).join('\n');
+                    document.getElementById('catBypass').textContent = (data.cat_bypass || []).join('\n');
+                } else {
+                    // 生成失败但保留分析结果
+                    document.getElementById('lsBypass').textContent = '生成失败: ' + (data.message || '未知错误');
+                    document.getElementById('catBypass').textContent = '生成失败: ' + (data.message || '未知错误');
+                }
+            })
+            .catch(error => {
+                // 生成过程出错但不影响分析结果显示
+                console.error('生成错误:', error);
+                document.getElementById('lsBypass').textContent = '生成过程中发生错误';
+                document.getElementById('catBypass').textContent = '生成过程中发生错误';
+            });
+        }
+
+        // 生成常用命令的绕过方案
+        function generateCommonBypassCommands(allowedChars) {
+            // 过滤常用命令，只保留由允许字符组成的命令
+            for (const [cmd, variations] of Object.entries(commonCommands)) {
+                const validVariations = variations.filter(variation => {
+                    return [...variation].every(char => allowedChars.includes(char));
+                });
+
+                // 显示结果
+                const elementId = cmd + 'Bypass';
+                const element = document.getElementById(elementId);
+                if (validVariations.length > 0) {
+                    element.textContent = validVariations.join('\n');
+                } else {
+                    element.textContent = '没有找到可用的绕过方案';
+                }
+            }
+        }
+
+        // 生成自定义命令
+        function generateCustomCommand() {
+            const customCmd = document.getElementById('customCmd').value;
+            const regexPattern = document.getElementById('regexInput').value;
+
+            // 发送请求到后端生成自定义命令
+            fetch('/generate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    command: customCmd,
+                    regex: regexPattern
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // 显示生成结果
+                    document.getElementById('customCmdResult').classList.remove('hidden');
+                    document.getElementById('bypassCommands').textContent = data.bypass_commands.join('\n');
+                } else {
+                    alert('生成失败: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('生成过程中发生错误');
+            });
+        }
+    </script>
+</body>
+</html>
